@@ -13,7 +13,8 @@ import gradio as gr
 from typing import List, Dict, Tuple, Optional
 
 from config import PrinterConfig, ColorSystem, ModelingMode, PREVIEW_SCALE, PREVIEW_MARGIN, OUTPUT_DIR, BedManager
-from utils import Stats, safe_fix_3mf_names
+from utils import Stats
+from utils.bambu_3mf_writer import export_scene_with_bambu_metadata
 
 from core.image_processing import LuminaImageProcessor
 from core.mesh_generators import get_mesher
@@ -955,9 +956,38 @@ def convert_image_to_3d(image_path, lut_path, target_width_mm, spacer_thick,
         return None, None, None, "❌ Mesh generation failed: No valid meshes generated"
     
     try:
-        scene.export(out_path)
-        safe_fix_3mf_names(out_path, valid_slot_names)
-        print(f"[CONVERTER] 3MF exported: {out_path}")
+        # Use enhanced BambuStudio-compatible 3MF export
+        print(f"[CONVERTER] Exporting with BambuStudio metadata...")
+        
+        # Prepare print settings (matching user's sample file for color layering)
+        print_settings = {
+            'layer_height': '0.08',
+            'initial_layer_height': '0.08',
+            'wall_loops': '1',
+            'top_shell_layers': '0',
+            'bottom_shell_layers': '0',
+            'sparse_infill_density': '100%',
+            'sparse_infill_pattern': 'zig-zag',
+            'nozzle_temperature': ['220'] * 8,  # Support up to 8 extruders
+            'bed_temperature': ['60'] * 8,
+            'filament_type': ['PLA'] * 8,
+            'print_speed': '100',
+            'travel_speed': '150',
+            'enable_support': '0',
+            'brim_width': '5',
+            'brim_type': 'auto_brim',
+        }
+        
+        export_scene_with_bambu_metadata(
+            scene=scene,
+            output_path=out_path,
+            slot_names=valid_slot_names,
+            preview_colors=preview_colors,
+            settings=print_settings,
+            color_mode=color_mode
+        )
+        
+        print(f"[CONVERTER] 3MF exported with embedded settings: {out_path}")
     except Exception as e:
         print(f"[CONVERTER] Error exporting 3MF: {e}")
         return None, None, None, f"❌ 3MF export failed: {e}"
