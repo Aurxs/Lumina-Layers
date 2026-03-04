@@ -118,6 +118,7 @@ class VectorProcessor:
         slot_names = color_conf["slots"]
         preview_colors = color_conf["preview"]
         num_channels = len(slot_names)
+        num_layers = color_conf.get('layer_count', PrinterConfig.COLOR_LAYERS)
 
         # === Stage 4: Match fill colors to LUT recipes ===
         replacement_manager = None
@@ -129,12 +130,11 @@ class VectorProcessor:
                 print(f"[VECTOR] Warning: Failed to load color replacements: {e}")
 
         t0 = time.perf_counter()
-        matched_shapes = self._match_colors(clipped_shapes, replacement_manager, num_channels)
+        matched_shapes = self._match_colors(clipped_shapes, replacement_manager, num_channels, num_layers=num_layers)
         stage_timings["color_match_s"] = time.perf_counter() - t0
         print(f"[VECTOR] Matched {len(matched_shapes)} shapes to LUT recipes")
 
         # === Stage 5: Run-length extrude per channel ===
-        num_layers = PrinterConfig.COLOR_LAYERS
         layer_h = PrinterConfig.LAYER_HEIGHT
         extrude_cache = {}
 
@@ -312,7 +312,7 @@ class VectorProcessor:
 
     # ── Stage 4: Color matching with per-color cache ─────────────────────
 
-    def _match_colors(self, clipped_shapes, replacement_manager, num_channels):
+    def _match_colors(self, clipped_shapes, replacement_manager, num_channels, num_layers=None):
         """Match each shape's fill colour to a LUT recipe.
 
         Identical fill colours share a single KDTree lookup via a cache,
@@ -320,6 +320,8 @@ class VectorProcessor:
 
         Returns a list of dicts: ``{geometry, recipe, color}``.
         """
+        if num_layers is None:
+            num_layers = PrinterConfig.COLOR_LAYERS
         color_cache = {}
         matched = []
 
@@ -346,7 +348,7 @@ class VectorProcessor:
                 stack = self.img_processor.ref_stacks[lut_idx]
                 recipe = [
                     min(int(stack[z]), num_channels - 1)
-                    for z in range(min(PrinterConfig.COLOR_LAYERS, len(stack)))
+                    for z in range(min(num_layers, len(stack)))
                 ]
                 color_cache[rgb] = recipe
 
