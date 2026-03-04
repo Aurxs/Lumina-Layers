@@ -992,6 +992,22 @@ def convert_image_to_3d(image_path, lut_path, target_width_mm, spacer_thick,
         print(f"[CONVERTER] Error exporting 3MF: {e}")
         return None, None, None, f"❌ 3MF export failed: {e}"
     
+    # Step 8.5: Generate Color Recipe Report
+    try:
+        from utils.color_recipe_logger import ColorRecipeLogger
+        
+        model_filename = os.path.basename(out_path)
+        ColorRecipeLogger.create_from_processor(
+            processor=processor,
+            output_dir=OUTPUT_DIR,
+            model_filename=model_filename,
+            matched_rgb=matched_rgb,
+            material_matrix=material_matrix,
+            mask_solid=mask_solid
+        )
+    except Exception as e:
+        print(f"[CONVERTER] Warning: Failed to generate color recipe report: {e}")
+    
     # Step 9: Generate 3D Preview
     preview_mesh = _create_preview_mesh(
         matched_rgb, mask_solid, total_layers,
