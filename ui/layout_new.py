@@ -1472,7 +1472,16 @@ console.log('[CROP] Global scripts loaded, openCropModal:', typeof window.openCr
             return status_msg, _get_stats_html(lang, new_stats)
 
         # ========== Advanced Tab Events ==========
-        # (No events currently)
+        def on_unlock_max_size(unlock: bool):
+            """Toggle max size limit for width/height sliders."""
+            new_max = 9999 if unlock else 400
+            return gr.update(maximum=new_max), gr.update(maximum=new_max)
+
+        components['checkbox_unlock_max_size'].change(
+            on_unlock_max_size,
+            inputs=[components['checkbox_unlock_max_size']],
+            outputs=[components['slider_conv_width'], components['slider_conv_height']]
+        )
 
         # ========== About Tab Events ==========
         components['btn_clear_cache'].click(
@@ -4846,23 +4855,39 @@ def create_merge_tab_content(lang: str) -> dict:
 
 
 def create_advanced_tab_content(lang: str) -> dict:
-    """Build Advanced tab content for LUT merging. Returns component dict."""
-    components = {}
-    
-    # Title and description
-    components['md_advanced_title'] = gr.Markdown("### 🔬 高级功能 | Advanced Features" if lang == 'zh' else "### 🔬 Advanced Features")
+    """Build Advanced tab content with independent setting groups.
+    独立分组构建高级设置标签页内容。
 
-    # Palette display mode
-    palette_label = "调色板样式" if lang == "zh" else "Palette Style"
-    palette_swatch = "色块模式" if lang == "zh" else "Swatch Grid"
-    palette_card = "色卡模式" if lang == "zh" else "Card Layout"
-    saved_mode = _load_user_settings().get("palette_mode", "swatch")
-    components['radio_palette_mode'] = gr.Radio(
-        choices=[(palette_swatch, "swatch"), (palette_card, "card")],
-        value=saved_mode,
-        label=palette_label,
-    )
-    
+    Args:
+        lang (str): Language code, 'zh' or 'en'. (语言代码)
+
+    Returns:
+        dict: Gradio component dictionary. (组件字典)
+    """
+    components = {}
+
+    # --- Group 1: Palette display mode ---
+    with gr.Group():
+        palette_label = "调色板样式" if lang == "zh" else "Palette Style"
+        palette_swatch = "色块模式" if lang == "zh" else "Swatch Grid"
+        palette_card = "色卡模式" if lang == "zh" else "Card Layout"
+        saved_mode = _load_user_settings().get("palette_mode", "swatch")
+        components['radio_palette_mode'] = gr.Radio(
+            choices=[(palette_swatch, "swatch"), (palette_card, "card")],
+            value=saved_mode,
+            label=palette_label,
+        )
+
+    # --- Group 2: Unlock max size limit ---
+    with gr.Group():
+        unlock_label = "解除最大尺寸限制" if lang == "zh" else "Unlock Max Size Limit"
+        unlock_info = "开启后，图像转换的宽度/高度滑块将不再限制最大值（默认上限 400mm）" if lang == "zh" else "When enabled, width/height sliders in Image Converter will have no upper limit (default max 400mm)"
+        components['checkbox_unlock_max_size'] = gr.Checkbox(
+            label=unlock_label,
+            value=False,
+            info=unlock_info,
+        )
+
     return components
 
 
