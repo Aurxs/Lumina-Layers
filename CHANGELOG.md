@@ -6,6 +6,15 @@ All notable changes to Lumina Studio are documented in this file.
 
 ---
 
+## v1.6.4 (2026-03-12)
+
+### Bug Fixes
+- Fixed SVG mode "separate backing plate" checkbox being ignored; backing plate was always exported as a separate object regardless of setting
+- Fixed SVG mode backing plate color appearing gray instead of white (Board slot now correctly falls back to white when not matched in color system)
+- Fixed SVG mode backing plate and adjacent color layer gaps/through-cracks: root cause was v1.6.3 geometry clipping independently calling `simplify()` on each shape, causing shared boundary coordinate misalignment; replaced with `set_precision(grid_size=1e-6)` to snap all shape vertices to the same precision grid, eliminating gaps at the source
+
+---
+
 ## v1.6.3 (2026-03-08)
 
 ### Features
