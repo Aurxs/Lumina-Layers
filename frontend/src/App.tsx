@@ -12,6 +12,12 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { WidgetWorkspace } from "./components/widget/WidgetWorkspace";
 import { useWidgetStore, WIDGET_REGISTRY, TAB_WIDGET_MAP } from "./stores/widgetStore";
 import TabNavBar from "./components/widget/TabNavBar";
+import FullScreenModal from "./components/ui/FullScreenModal";
+import CalibrationPanel from "./components/CalibrationPanel";
+import ExtractorPanel from "./components/ExtractorPanel";
+import LutManagerPanel from "./components/LutManagerPanel";
+import FiveColorQueryPanel from "./components/FiveColorQueryPanel";
+import type { TabId } from "./types/widget";
 
 /* ---------- Error Boundary ---------- */
 
@@ -84,6 +90,18 @@ function WidgetToggles() {
   );
 }
 
+/* ---------- Modal Tab 配置 ---------- */
+
+/** 需要以弹窗形式打开的 Tab（独立操作，不需要和 3D 场景交互） */
+const MODAL_TABS: TabId[] = ['calibration', 'extractor', 'lut-manager', 'five-color'];
+
+const MODAL_TITLE_KEYS: Record<string, string> = {
+  'calibration': 'tab.calibration',
+  'extractor': 'tab.extractor',
+  'lut-manager': 'tab.lutManager',
+  'five-color': 'tab.fiveColor',
+};
+
 /* ---------- App Content (inside I18nProvider) ---------- */
 
 function AppContent() {
@@ -91,8 +109,18 @@ function AppContent() {
   useAutoPreview();
 
   const [connected, setConnected] = useState<boolean | null>(null);
+  const [modalTab, setModalTab] = useState<TabId | null>(null);
   const activeTab = useWidgetStore((s) => s.activeTab);
   const setActiveTab = useWidgetStore((s) => s.setActiveTab);
+
+  /** Tab 点击处理：独立操作 Tab 打开弹窗，converter 正常切换 */
+  const handleTabChange = (tab: TabId) => {
+    if (MODAL_TABS.includes(tab)) {
+      setModalTab(tab);
+    } else {
+      setActiveTab(tab);
+    }
+  };
 
   useEffect(() => {
     apiClient
@@ -110,7 +138,8 @@ function AppContent() {
 
         <TabNavBar
           activeTab={activeTab}
-          onTabChange={setActiveTab}
+          modalTab={modalTab}
+          onTabChange={handleTabChange}
         />
 
         <WidgetToggles />
@@ -142,23 +171,38 @@ function AppContent() {
 
       <main className="flex-1 overflow-hidden">
         <WidgetWorkspace>
-          {activeTab === 'extractor' ? (
-            <ExtractorCanvas />
-          ) : (
-            <SceneErrorBoundary
-              fallback={
-                <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-950">
-                  <p className="text-red-400 text-sm">{t("app_3d_scene_error")}</p>
-                </div>
-              }
-            >
-              <Suspense fallback={<LoadingSpinner />}>
-                <Scene3D />
-              </Suspense>
-            </SceneErrorBoundary>
-          )}
+          <SceneErrorBoundary
+            fallback={
+              <div className="absolute inset-0 flex items-center justify-center bg-gray-100 dark:bg-gray-950">
+                <p className="text-red-400 text-sm">{t("app_3d_scene_error")}</p>
+              </div>
+            }
+          >
+            <Suspense fallback={<LoadingSpinner />}>
+              <Scene3D />
+            </Suspense>
+          </SceneErrorBoundary>
         </WidgetWorkspace>
       </main>
+
+      {/* 全屏弹窗：校准 / 提取器 / LUT管理 / 配方查询 */}
+      <FullScreenModal
+        open={modalTab !== null}
+        title={modalTab ? t(MODAL_TITLE_KEYS[modalTab]) : ""}
+        onClose={() => setModalTab(null)}
+      >
+        {modalTab === 'calibration' && <CalibrationPanel />}
+        {modalTab === 'extractor' && (
+          <div className="flex h-full">
+            <ExtractorPanel />
+            <div className="flex-1 relative">
+              <ExtractorCanvas />
+            </div>
+          </div>
+        )}
+        {modalTab === 'lut-manager' && <LutManagerPanel />}
+        {modalTab === 'five-color' && <FiveColorQueryPanel />}
+      </FullScreenModal>
     </div>
   );
 }

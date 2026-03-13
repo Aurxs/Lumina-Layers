@@ -1094,7 +1094,7 @@ export const translations: Record<string, Record<"zh" | "en", string>> = {
     en: "LUT Manager",
   },
   "widget.fiveColor": {
-    zh: "五色查询",
+    zh: "配方查询",
     en: "Five-Color",
   },
   "widget.basicSettings": {
@@ -1160,7 +1160,7 @@ export const translations: Record<string, Record<"zh" | "en", string>> = {
     en: "LUT Manager",
   },
   "tab.fiveColor": {
-    zh: "五色查询",
+    zh: "配方查询",
     en: "Five-Color",
   },
 
