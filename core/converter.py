@@ -2765,6 +2765,23 @@ def generate_segmented_glb(cache: dict, max_meshes: int = 64) -> Optional[str]:
             return None
 
         # ------------------------------------------------------------------
+        # 4.5 Build backing plate mesh
+        # ------------------------------------------------------------------
+        backing_mesh = _build_color_voxel_mesh(
+            mask_solid, height, width,
+            total_layers=1,
+            shrink=shrink,
+            rgba=np.array([245, 245, 245, 255], dtype=np.uint8),
+        )
+        if backing_mesh is not None:
+            backing_mesh.apply_transform(scale_transform)
+            min_z = backing_mesh.vertices[:, 2].min()
+            if min_z != 0.0:
+                backing_mesh.vertices[:, 2] -= min_z
+            scene.add_geometry(backing_mesh, node_name="backing_plate")
+            print(f"[SEGMENTED_GLB] Backing plate added ({backing_mesh.vertices.shape[0]} vertices)")
+
+        # ------------------------------------------------------------------
         # 5. Extract 2D contours for each color (for frontend outline rendering)
         # ------------------------------------------------------------------
         contours_data: dict[str, list[list[list[float]]]] = {}

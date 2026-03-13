@@ -5,13 +5,19 @@ import type { BatchResponse, BatchItemResult } from "../../api/types";
 
 // ========== Arbitraries ==========
 
-const VALID_MIME_TYPES = ["image/jpeg", "image/png", "image/svg+xml"] as const;
+const VALID_MIME_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/svg+xml",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+] as const;
 
 const INVALID_MIME_TYPES = [
   "text/plain",
   "application/pdf",
   "image/gif",
-  "image/webp",
   "image/bmp",
   "video/mp4",
   "application/json",

@@ -1494,8 +1494,8 @@ export const translations: Record<string, Record<"zh" | "en", string>> = {
     en: "Modeling Mode",
   },
   basic_image_format_error: {
-    zh: "仅支持 JPG/PNG/SVG 格式",
-    en: "Only JPG/PNG/SVG formats are supported",
+    zh: "仅支持 JPG/PNG/SVG/WebP/HEIC 格式",
+    en: "Only JPG/PNG/SVG/WebP/HEIC formats are supported",
   },
 
   // ==================== Structure Mode Options ====================

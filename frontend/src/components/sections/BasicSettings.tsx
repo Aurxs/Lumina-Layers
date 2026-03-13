@@ -1,5 +1,5 @@
 import { useShallow } from "zustand/react/shallow";
-import { useConverterStore, isValidImageType } from "../../stores/converterStore";
+import { useConverterStore, isValidImageType, ACCEPT_IMAGE_FORMATS } from "../../stores/converterStore";
 import {
   ModelingMode,
   StructureMode,
@@ -104,13 +104,13 @@ export default function BasicSettings() {
           files={batchFiles}
           onFilesAdd={addBatchFiles}
           onFileRemove={removeBatchFile}
-          accept="image/jpeg,image/png,image/svg+xml"
+          accept={ACCEPT_IMAGE_FORMATS}
         />
       ) : (
         <>
           <ImageUpload
             onFileSelect={handleFileSelect}
-            accept="image/jpeg,image/png,image/svg+xml"
+            accept={ACCEPT_IMAGE_FORMATS}
             preview={imagePreviewUrl ?? undefined}
           />
 

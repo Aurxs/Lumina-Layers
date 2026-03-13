@@ -86,11 +86,25 @@ export default function ImageUpload({
         className="hidden"
       />
       {preview ? (
-        <img
-          src={preview}
-          alt="preview"
-          className="max-h-[160px] max-w-full rounded object-contain p-2"
-        />
+        <div
+          data-testid="checkerboard-bg"
+          className="rounded p-2"
+          style={{
+            backgroundImage:
+              "linear-gradient(45deg, #e0e0e0 25%, transparent 25%), " +
+              "linear-gradient(-45deg, #e0e0e0 25%, transparent 25%), " +
+              "linear-gradient(45deg, transparent 75%, #e0e0e0 75%), " +
+              "linear-gradient(-45deg, transparent 75%, #e0e0e0 75%)",
+            backgroundSize: "16px 16px",
+            backgroundPosition: "0 0, 0 8px, 8px -8px, -8px 0px",
+          }}
+        >
+          <img
+            src={preview}
+            alt="preview"
+            className="max-h-[160px] max-w-full rounded object-contain"
+          />
+        </div>
       ) : (
         <span className="text-sm text-gray-500 dark:text-gray-400 select-none">
           {t("upload_drag_hint")}

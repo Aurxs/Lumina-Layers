@@ -70,7 +70,7 @@ function InteractiveModelViewer({
   // Clone scene once per URL load, apply rotation/centering,
   // and clone each color mesh's material to avoid shared-material mutations.
   // Also separate color_ meshes from non-color children for individual JSX rendering.
-  const { nonColorObject, colorMeshes, modelBounds, sceneCenter } = useMemo(() => {
+  const { nonColorObject, colorMeshes, modelBounds, sceneCenter, backingPlateMesh } = useMemo(() => {
     const clone = scene.clone(true);
 
     // Remove any baked-in bed mesh
@@ -85,8 +85,9 @@ function InteractiveModelViewer({
     // Convert all mesh materials to pure diffuse (no specular reflections).
     // Trimesh-exported GLB uses MeshStandardMaterial which reflects the HDR
     // environment map, causing unwanted glare on the color surfaces.
+    // Skip backing_plate — it gets its own independent material below.
     clone.traverse((child) => {
-      if (child instanceof THREE.Mesh && child.material) {
+      if (child instanceof THREE.Mesh && child.material && child.name !== "backing_plate") {
         const mats = Array.isArray(child.material)
           ? child.material
           : [child.material];
@@ -116,7 +117,37 @@ function InteractiveModelViewer({
     clone.position.set(-center.x, -center.y, -box.min.z);
     clone.updateMatrixWorld(true);
 
-    // Separate color_ meshes from the rest
+    // --- Extract backing_plate mesh from GLB scene ---
+    let extractedBackingPlate: THREE.Mesh | null = null;
+    clone.traverse((child) => {
+      if (child instanceof THREE.Mesh && child.name === "backing_plate") {
+        extractedBackingPlate = child;
+      }
+    });
+
+    if (extractedBackingPlate !== null) {
+      const bp = extractedBackingPlate as THREE.Mesh;
+      // Bake world matrix so geometry is in centered world space
+      bp.updateWorldMatrix(true, false);
+      bp.geometry.applyMatrix4(bp.matrixWorld);
+      bp.position.set(0, 0, 0);
+      bp.rotation.set(0, 0, 0);
+      bp.scale.set(1, 1, 1);
+      bp.updateMatrixWorld(true);
+
+      // Detach from clone tree
+      bp.removeFromParent();
+
+      // Apply independent MeshStandardMaterial (Requirement 4.1, 4.2, 4.3)
+      const backingMat = new THREE.MeshStandardMaterial({
+        color: 0xf5f5f5,
+        roughness: 0.85,
+        metalness: 0.0,
+      });
+      bp.material = backingMat;
+    }
+
+    // Separate color_ meshes from the rest (excluding backing_plate)
     const colorMeshList: THREE.Mesh[] = [];
     const colorMeshParents: { mesh: THREE.Mesh; parent: THREE.Object3D }[] = [];
 
@@ -165,6 +196,14 @@ function InteractiveModelViewer({
         boundsBox.union(mesh.geometry.boundingBox);
       }
     }
+    // Include backing plate in bounds calculation
+    if (extractedBackingPlate !== null) {
+      const bp = extractedBackingPlate as THREE.Mesh;
+      bp.geometry.computeBoundingBox();
+      if (bp.geometry.boundingBox) {
+        boundsBox.union(bp.geometry.boundingBox);
+      }
+    }
 
     const bounds = boundsBox.isEmpty()
       ? null
@@ -176,7 +215,13 @@ function InteractiveModelViewer({
           maxZ: boundsBox.max.z, // thickness direction (toward camera)
         };
 
-    return { nonColorObject: clone, colorMeshes: colorMeshList, modelBounds: bounds, sceneCenter: center };
+    return {
+      nonColorObject: clone,
+      colorMeshes: colorMeshList,
+      modelBounds: bounds,
+      sceneCenter: center,
+      backingPlateMesh: extractedBackingPlate as THREE.Mesh | null,
+    };
   }, [scene]);
 
   // Expose model bounds to store for KeychainRing3D positioning
@@ -187,6 +232,12 @@ function InteractiveModelViewer({
   // ---- White backing plate mesh ----
   const isDoubleSided = structureMode === "Double-sided";
   const backingMesh = useMemo(() => {
+    // When GLB contains backing_plate: use it directly (Requirement 2.2, 2.4)
+    if (backingPlateMesh) {
+      return backingPlateMesh;
+    }
+
+    // Fallback: create rectangular BoxGeometry when GLB has no backing_plate (Requirement 2.3)
     if (!modelBounds) return null;
     const w = modelBounds.maxX - modelBounds.minX;
     const h = modelBounds.maxY - modelBounds.minY;
@@ -199,21 +250,13 @@ function InteractiveModelViewer({
       metalness: 0.0,
     });
     const mesh = new THREE.Mesh(geo, mat);
-    mesh.name = "__backing_plate";
+    mesh.name = "__backing_plate_fallback";
 
     const cx = (modelBounds.minX + modelBounds.maxX) / 2;
     const cy = (modelBounds.minY + modelBounds.maxY) / 2;
-
-    if (isDoubleSided) {
-      // Double-sided: backing plate sits with its top face at the color layer base
-      // Color layers go upward from spacerThick, backing occupies [0, spacerThick]
-      mesh.position.set(cx, cy, spacerThick / 2);
-    } else {
-      // Single-sided: backing at bottom, colors on top
-      mesh.position.set(cx, cy, spacerThick / 2);
-    }
+    mesh.position.set(cx, cy, spacerThick / 2);
     return mesh;
-  }, [modelBounds, spacerThick, isDoubleSided]);
+  }, [backingPlateMesh, modelBounds, spacerThick]);
 
   // Camera is managed by BedPlatform's default view — skip auto-fit here
   // so the viewport stays stable when a preview model loads.
@@ -310,6 +353,24 @@ function InteractiveModelViewer({
       groupRef.current.add(outlineGroup);
     }
 
+    // ---- Backing plate Z positioning and scaling (Requirements 3.1, 3.2, 3.3, 3.4) ----
+    // XY scale is inherited from parent group via scaleX/scaleY (Requirement 3.4)
+    if (backingMesh) {
+      if (backingPlateMesh && backingMesh === backingPlateMesh) {
+        // GLB-extracted backing plate: scale Z to match spacerThick
+        // The native mesh has Z height = 1 voxel layer × LAYER_HEIGHT
+        backingMesh.geometry.computeBoundingBox();
+        const backingBBox = backingMesh.geometry.boundingBox;
+        const nativeH = backingBBox
+          ? backingBBox.max.z - backingBBox.min.z
+          : 1;
+        backingMesh.scale.z = nativeH > 0 ? spacerThick / nativeH : 1;
+        // Bottom-aligned at Z=0; top face at Z=spacerThick (Requirement 3.1, 3.2)
+        backingMesh.position.z = 0;
+      }
+      // Fallback BoxGeometry already has correct size and position from useMemo
+    }
+
     for (const mesh of colorMeshes) {
       const origHex = extractHexFromMeshName(mesh.name);
       const mat = mesh.material as THREE.MeshStandardMaterial;
@@ -339,7 +400,7 @@ function InteractiveModelViewer({
         mesh.scale.z = nativeH > 0 ? COLOR_LAYER_HEIGHT / nativeH : 1;
       }
 
-      // Position color layer on top of the backing plate
+      // Position color layer on top of the backing plate (top face at Z=spacerThick)
       mesh.position.z = spacerThick;
     }
 
@@ -415,7 +476,7 @@ function InteractiveModelViewer({
         outlineArcRef.current.push(arcPairs);
       }
     }
-  }, [colorMeshes, mirrorMeshes, colorRemapMap, colorHeightMap, selectedColor, enableRelief, baseHeight, colorContours, modelBounds, sceneCenter, spacerThick, isDoubleSided]);
+  }, [colorMeshes, mirrorMeshes, colorRemapMap, colorHeightMap, selectedColor, enableRelief, baseHeight, colorContours, modelBounds, sceneCenter, spacerThick, isDoubleSided, backingMesh, backingPlateMesh]);
 
   // Flowing RGB animation: shift hue offset each frame for a "light strip" effect.
   const tmpColorAnim = useRef(new THREE.Color());
@@ -464,14 +525,14 @@ function InteractiveModelViewer({
   return (
     <group ref={groupRef} scale={[scaleX, scaleY, 1]}>
       <primitive object={nonColorObject} />
-      {/* White backing plate */}
-      {backingMesh && <primitive object={backingMesh} />}
-      {/* Color layers (positioned on top of backing plate via position.z in useEffect) */}
-      {colorMeshes.map((mesh) => (
+      {/* Double-sided: mirror color layers below the backing plate (Z < 0) */}
+      {mirrorMeshes.map((mesh) => (
         <primitive key={mesh.uuid} object={mesh} />
       ))}
-      {/* Double-sided: mirror color layers below the backing plate */}
-      {mirrorMeshes.map((mesh) => (
+      {/* White backing plate — GLB-extracted shape or rectangular fallback (Z ∈ [0, spacerThick]) */}
+      {backingMesh && <primitive object={backingMesh} />}
+      {/* Color layers on top of backing plate (Z ≥ spacerThick) */}
+      {colorMeshes.map((mesh) => (
         <primitive key={mesh.uuid} object={mesh} />
       ))}
     </group>

@@ -66,4 +66,38 @@ describe("ImageUpload", () => {
     expect(input).toBeTruthy();
     expect(input.accept).toBe("image/jpeg,image/png,image/svg+xml");
   });
+
+  it("renders checkerboard background when preview is provided", () => {
+    render(
+      <ImageUpload
+        onFileSelect={vi.fn()}
+        accept="image/png"
+        preview="data:image/png;base64,fake"
+      />,
+    );
+    const checkerboard = screen.getByTestId("checkerboard-bg");
+    expect(checkerboard).toBeInTheDocument();
+  });
+
+  it("does NOT render checkerboard when preview is not provided", () => {
+    render(
+      <ImageUpload onFileSelect={vi.fn()} accept="image/png" />,
+    );
+    expect(screen.queryByTestId("checkerboard-bg")).not.toBeInTheDocument();
+  });
+
+  it("checkerboard has correct background styles (16px, #e0e0e0)", () => {
+    render(
+      <ImageUpload
+        onFileSelect={vi.fn()}
+        accept="image/png"
+        preview="data:image/png;base64,fake"
+      />,
+    );
+    const checkerboard = screen.getByTestId("checkerboard-bg");
+    const style = checkerboard.style;
+    expect(style.backgroundSize).toBe("16px 16px");
+    // jsdom converts #e0e0e0 to rgb(224, 224, 224)
+    expect(style.backgroundImage).toContain("224, 224, 224");
+  });
 });

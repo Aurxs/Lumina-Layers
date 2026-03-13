@@ -38,7 +38,16 @@ export function clampValue(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
-const VALID_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/svg+xml"]);
+const VALID_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/svg+xml",
+  "image/webp",
+  "image/heic",
+  "image/heif",
+]);
+
+export const ACCEPT_IMAGE_FORMATS = Array.from(VALID_IMAGE_TYPES).join(",");
 
 export function isValidImageType(mimeType: string): boolean {
   return VALID_IMAGE_TYPES.has(mimeType);
@@ -1000,7 +1009,7 @@ export const useConverterStore = create<ConverterState & ConverterActions>(
         // Fetch cropped image as Blob to create a new File
         const blob = await fetch(croppedFullUrl).then((r) => r.blob());
         const croppedFile = new File([blob], state.imageFile.name, {
-          type: blob.type || state.imageFile.type,
+          type: "image/png",
         });
 
         // Revoke previous preview URL
