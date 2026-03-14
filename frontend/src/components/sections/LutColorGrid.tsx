@@ -28,7 +28,8 @@ export function classifyHue(r: number, g: number, b: number): HueCategory {
   const s = max === 0 ? 0 : d / max;
   const v = max;
 
-  if (s < 0.15 || v < 0.1) return "neutral";
+  // 提高中性色阈值，减少低饱和度颜色的误分类
+  if (s < 0.2 || v < 0.15) return "neutral";
 
   let h = 0;
   if (d !== 0) {
@@ -38,13 +39,15 @@ export function classifyHue(r: number, g: number, b: number): HueCategory {
   }
   h = ((h * 60) + 360) % 360;
 
-  if (h < 15 || h >= 345) return "red";
-  if (h < 40) return "orange";
-  if (h < 70) return "yellow";
-  if (h < 160) return "green";
-  if (h < 195) return "cyan";
-  if (h < 260) return "blue";
-  if (h < 345) return "purple";
+  // 使用更宽松的色相范围，减少边界色块
+  // 核心策略：扩大每个色相类别的范围，让边界区域有更多容错空间
+  if (h < 20 || h >= 340) return "red";      // 红色: 340-20° (扩大 10°)
+  if (h < 50) return "orange";                // 橙色: 20-50° (扩大 20°)
+  if (h < 80) return "yellow";                // 黄色: 50-80° (扩大 20°)
+  if (h < 170) return "green";                // 绿色: 80-170° (扩大 20°)
+  if (h < 200) return "cyan";                 // 青色: 170-200° (扩大 10°)
+  if (h < 270) return "blue";                 // 蓝色: 200-270° (扩大 20°)
+  if (h < 340) return "purple";               // 紫色: 270-340° (扩大 10°)
   return "neutral";
 }
 

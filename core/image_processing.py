@@ -33,6 +33,7 @@ _SVG_RASTER_CACHE = {}
 _SVG_RASTER_CACHE_MAX = 4
 
 
+
 class LuminaImageProcessor:
     """
     Image processor class.
@@ -734,6 +735,7 @@ class LuminaImageProcessor:
             
             t_kmeans = time.time()
             print(f"[IMAGE_PROCESSOR] K-Means++ on downscaled image ({quantize_colors} colors)...")
+            cv2.setRNGSeed(42)  # 固定随机种子，确保 K-Means 结果可复现
             _, _, centers = cv2.kmeans(
                 pixels_small, quantize_colors, None, criteria, 5, flags
             )
@@ -764,6 +766,7 @@ class LuminaImageProcessor:
             criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
             flags = cv2.KMEANS_PP_CENTERS
             
+            cv2.setRNGSeed(42)  # 固定随机种子，确保 K-Means 结果可复现
             _, labels, centers = cv2.kmeans(
                 pixels, quantize_colors, None, criteria, 10, flags
             )
@@ -790,6 +793,7 @@ class LuminaImageProcessor:
         
         # Match to LUT (in CIELAB space for perceptual accuracy)
         t0 = time.time()
+        print(f"[IMAGE_PROCESSOR] ★★★ hue_weight={self.hue_weight}, hue_matcher={'YES' if self.hue_matcher is not None else 'NONE'} ★★★")
         print(f"[IMAGE_PROCESSOR] Matching colors to LUT (CIELAB space)...")
         if self.hue_matcher is not None:
             print(f"[IMAGE_PROCESSOR] 🎨 Hue-aware matching enabled (hue_weight={self.hue_weight})")
@@ -833,25 +837,6 @@ class LuminaImageProcessor:
             target_h, target_w, self.layer_count
         )
         print(f"[IMAGE_PROCESSOR] ⏱️ Color mapping (optimized): {time.time() - t0:.2f}s")
-        
-        # [色相保护后处理] 消除匹配边界的色块跳变
-        # 色相感知匹配可能让相邻的量化色映射到不同 LUT 颜色，
-        # 在边界处形成"块状"。用 medianBlur 平滑后重新匹配到最近 LUT 色。
-        if self.hue_matcher is not None:
-            t_post = time.time()
-            print(f"[IMAGE_PROCESSOR] 🎨 Post-match smoothing for hue-aware mode...")
-            # 两轮平滑：先 5x5 消除大色块，再 3x3 精修边缘
-            smoothed = cv2.medianBlur(matched_rgb, 5)
-            smoothed = cv2.medianBlur(smoothed, 3)
-            # 重新匹配平滑后的颜色到最近的 LUT 颜色
-            flat_smoothed = smoothed.reshape(-1, 3)
-            smooth_lab = self._rgb_to_lab(flat_smoothed)
-            _, smooth_indices = self.kdtree.query(smooth_lab)
-            matched_rgb = self.lut_rgb[smooth_indices].reshape(target_h, target_w, 3)
-            material_matrix = self.ref_stacks[smooth_indices].reshape(
-                target_h, target_w, self.layer_count
-            )
-            print(f"[IMAGE_PROCESSOR] ⏱️ Post-match smoothing: {time.time() - t_post:.2f}s")
         
         print(f"[IMAGE_PROCESSOR] ✅ Total processing time: {time.time() - total_start:.2f}s")
         

@@ -153,9 +153,41 @@ class HueAwareColorMatcher:
 
         return np.sqrt(dL ** 2 + dC ** 2 + dH ** 2)
 
+    @staticmethod
+    def _hue_diff(h1, h2):
+        """色相角差（环形，返回 0-180）"""
+        d = np.abs(h1 - h2)
+        return np.where(d > 180, 360 - d, d)
+
+    @staticmethod
+    def _adaptive_hue_threshold(chroma):
+        """根据彩度自适应色相阈值，平滑过渡，避免硬分界导致色块。
+        
+        高彩度 → 严格色相约束；低彩度 → 放宽但仍优先色相；
+        极低彩度（C≤2）→ 不约束色相（真正的灰色）。
+        """
+        if chroma > 15:
+            return 20.0, 45.0   # 高彩度：严格色相
+        elif chroma > 8:
+            return 25.0, 50.0   # 中高彩度
+        elif chroma > 5:
+            return 30.0, 55.0   # 中彩度
+        elif chroma > 2:
+            return 50.0, 80.0   # 低彩度：放宽但仍优先色相
+        else:
+            return 999.0, 999.0  # 极低彩度：不约束
+
     def match_colors_batch(self, input_rgb: np.ndarray, k: int = 16) -> np.ndarray:
         """
-        批量颜色匹配。
+        色相优先批量颜色匹配。
+
+        策略：色相作为硬约束而非软权重，自适应阈值随彩度平滑过渡。
+        1. KDTree 初筛 k 个 CIELAB 最近候选
+        2. 根据输入彩度确定色相阈值（高彩度严格，低彩度放宽）
+        3. 在同色相候选中按 CIELAB 距离选最近的
+        4. 只有 C≤2 的真正灰色才跳过色相约束
+
+        当 hue_weight=0（纯 CIELAB 模式）时，直接用 KDTree 最近邻。
 
         参数:
             input_rgb: (N, 3) uint8 RGB 数组
@@ -167,7 +199,9 @@ class HueAwareColorMatcher:
         input_rgb = np.asarray(input_rgb, dtype=np.uint8)
         n = len(input_rgb)
 
-        # 如果权重全为 1（纯 CIELAB），直接用 KDTree
+        print(f"[HueAwareMatcher] ★★★ match_colors_batch v2 (色相优先硬约束) ★★★ n={n}, k={k}")
+
+        # 纯 CIELAB 模式（hue_weight=0），直接 KDTree
         if (abs(self.w_L - 1.0) < 1e-6 and
             abs(self.w_C - 1.0) < 1e-6 and
             abs(self.w_H - 1.0) < 1e-6):
@@ -182,18 +216,48 @@ class HueAwareColorMatcher:
         # KDTree 初筛
         k_actual = min(k, self.n_colors)
         _, candidate_indices = self.kdtree.query(input_lab, k=k_actual)
-
         if candidate_indices.ndim == 1:
             candidate_indices = candidate_indices.reshape(-1, 1)
 
-        # 对每个输入颜色，在候选中用加权距离重新排序
         result = np.empty(n, dtype=np.intp)
 
         for i in range(n):
             cand_idx = candidate_indices[i]
+            input_c = input_lch[i, 1]
+            input_h = input_lch[i, 2]
+
+            cand_lab = self.lut_lab[cand_idx]
             cand_lch = self.lut_lch[cand_idx]
-            distances = self._weighted_distance(input_lch[i], cand_lch)
-            best = np.argmin(distances)
+            lab_dist = np.linalg.norm(cand_lab - input_lab[i], axis=1)
+
+            ht, ht_relaxed = self._adaptive_hue_threshold(input_c)
+
+            if input_c <= 2.0:
+                # 真正的灰色，色相完全不可靠
+                best = np.argmin(lab_dist)
+            else:
+                cand_h = cand_lch[:, 2]
+                cand_c = cand_lch[:, 1]
+                hdiff = self._hue_diff(input_h, cand_h)
+
+                # 候选彩度门槛随输入彩度降低
+                min_cand_c = max(1.0, input_c * 0.3)
+
+                same_hue_mask = (hdiff < ht) & (cand_c > min_cand_c)
+
+                if np.any(same_hue_mask):
+                    same_hue_dist = lab_dist.copy()
+                    same_hue_dist[~same_hue_mask] = 1e9
+                    best = np.argmin(same_hue_dist)
+                else:
+                    relaxed_mask = (hdiff < ht_relaxed) & (cand_c > min_cand_c * 0.5)
+                    if np.any(relaxed_mask):
+                        relaxed_dist = lab_dist.copy()
+                        relaxed_dist[~relaxed_mask] = 1e9
+                        best = np.argmin(relaxed_dist)
+                    else:
+                        best = np.argmin(lab_dist)
+
             result[i] = cand_idx[best]
 
         return result
