@@ -1,151 +1,333 @@
 #!/usr/bin/env python3
-"""Cross-platform dev launcher for Lumina Studio.
-Lumina Studio 跨平台开发启动器。
+# -*- coding: utf-8 -*-
+"""Lumina Studio 2.0 — 开发环境启动器（重构版）
 
-Manages Backend (FastAPI :8000) and Frontend (Vite :5173) as child
-processes.  Handles graceful shutdown on Ctrl+C / SIGTERM and
-auto-terminates the surviving process when either one exits.
-管理 Backend（FastAPI :8000）和 Frontend（Vite :5173）子进程。
-处理 Ctrl+C / SIGTERM 优雅终止，任一进程退出时自动终止另一个。
+功能：
+  - 一键启动 Backend (FastAPI :8000) + Frontend (Vite :5173)
+  - 支持一键重启（按 r + Enter）
+  - 启动前自动清理残留端口占用
+  - 彩色日志输出，区分 Backend / Frontend
+  - 优雅退出（Ctrl+C / SIGTERM）
 
-Usage / 用法::
-
-    python start_dev.py
+用法：
+    python start_dev.py              # 启动
+    python start_dev.py --backend    # 仅启动后端
+    python start_dev.py --frontend   # 仅启动前端
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import signal
+import socket
 import subprocess
 import sys
+import threading
 import time
-from typing import List, Tuple
+from typing import Optional
 
-# Root directory of the project (项目根目录)
-ROOT_DIR: str = os.path.dirname(os.path.abspath(__file__))
+ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+FRONTEND_DIR = os.path.join(ROOT_DIR, "frontend")
 
-# Frontend directory (前端目录)
-FRONTEND_DIR: str = os.path.join(ROOT_DIR, "frontend")
-
-# Polling interval in seconds to avoid busy-waiting (轮询间隔，避免忙等待)
-POLL_INTERVAL: float = 0.5
-
-
-def _build_backend_cmd() -> List[str]:
-    """Build the command list for the Backend process.
-    构建 Backend 进程的命令列表。
-
-    Returns:
-        List[str]: Command tokens. (命令列表)
-    """
-    return [sys.executable, "api_server.py"]
+BACKEND_PORT = 8000
+FRONTEND_PORT = 5173
+POLL_INTERVAL = 0.3
+SHUTDOWN_TIMEOUT = 5
+MAX_AUTO_RESTART = 3  # 自动重启上限，防止死循环
 
 
-def _build_frontend_cmd() -> List[str]:
-    """Build the command list for the Frontend process.
-    构建 Frontend 进程的命令列表。
+def _find_venv_python() -> str:
+    """查找项目 venv 中的 Python 解释器，找不到则回退到当前解释器。"""
+    candidates = [
+        os.path.join(ROOT_DIR, "venv", "bin", "python"),
+        os.path.join(ROOT_DIR, "venv", "Scripts", "python.exe"),
+        os.path.join(ROOT_DIR, ".venv", "bin", "python"),
+        os.path.join(ROOT_DIR, ".venv", "Scripts", "python.exe"),
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    return sys.executable
 
-    Returns:
-        List[str]: Command tokens. (命令列表)
-    """
-    return ["npm", "run", "dev"]
+
+# ── 颜色工具 ──────────────────────────────────────────────
+
+class C:
+    """ANSI 颜色常量"""
+    RESET  = "\033[0m"
+    BOLD   = "\033[1m"
+    RED    = "\033[31m"
+    GREEN  = "\033[32m"
+    YELLOW = "\033[33m"
+    BLUE   = "\033[34m"
+    CYAN   = "\033[36m"
+    DIM    = "\033[2m"
 
 
-def _terminate_all(procs: List[Tuple[str, subprocess.Popen]]) -> None:
-    """Terminate all managed child processes gracefully.
-    优雅终止所有托管的子进程。
+def _log(tag: str, color: str, msg: str) -> None:
+    ts = time.strftime("%H:%M:%S")
+    print(f"{C.DIM}{ts}{C.RESET} {color}{C.BOLD}[{tag}]{C.RESET} {msg}")
 
-    Sends SIGTERM (terminate) to each process that is still running,
-    then waits up to 5 seconds for each to exit before force-killing.
-    向每个仍在运行的进程发送 SIGTERM，然后最多等待 5 秒，超时则强制终止。
 
-    Args:
-        procs: List of (name, Popen) tuples. (进程名称和 Popen 对象的列表)
-    """
-    for name, proc in procs:
-        if proc.poll() is None:
-            print(f"[DEV] Terminating {name} (pid={proc.pid}) ...")
-            proc.terminate()
+def log_sys(msg: str) -> None:
+    _log("SYS", C.YELLOW, msg)
 
-    # Wait for graceful exit, then force-kill stragglers
-    # 等待优雅退出，超时后强制终止
-    for name, proc in procs:
+
+def log_ok(msg: str) -> None:
+    _log(" OK", C.GREEN, msg)
+
+
+def log_err(msg: str) -> None:
+    _log("ERR", C.RED, msg)
+
+
+# ── 端口工具 ──────────────────────────────────────────────
+
+def is_port_in_use(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        return s.connect_ex(("127.0.0.1", port)) == 0
+
+
+def kill_port(port: int) -> bool:
+    """尝试杀掉占用指定端口的进程（macOS/Linux）"""
+    if not is_port_in_use(port):
+        return False
+    try:
+        result = subprocess.run(
+            ["lsof", "-ti", f":{port}"],
+            capture_output=True, text=True, timeout=5,
+        )
+        pids = result.stdout.strip().split("\n")
+        for pid in pids:
+            if pid.strip():
+                subprocess.run(["kill", "-9", pid.strip()], timeout=5)
+        time.sleep(0.5)
+        return True
+    except Exception:
+        return False
+
+
+# ── 进程管理 ──────────────────────────────────────────────
+
+class ServiceProcess:
+    """封装一个子服务进程"""
+
+    def __init__(self, name: str, cmd: list[str], cwd: str, port: int, color: str):
+        self.name = name
+        self.cmd = cmd
+        self.cwd = cwd
+        self.port = port
+        self.color = color
+        self.proc: Optional[subprocess.Popen] = None
+        self._reader_thread: Optional[threading.Thread] = None
+
+    def start(self) -> None:
+        if is_port_in_use(self.port):
+            log_sys(f"端口 {self.port} 被占用，正在清理...")
+            kill_port(self.port)
+            if is_port_in_use(self.port):
+                log_err(f"无法释放端口 {self.port}，请手动处理")
+                return
+
+        _log(self.name, self.color, f"启动中... (port={self.port})")
+        self.proc = subprocess.Popen(
+            self.cmd,
+            cwd=self.cwd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            shell=(os.name == "nt" and self.name == "Frontend"),
+        )
+        self._reader_thread = threading.Thread(
+            target=self._stream_output, daemon=True,
+        )
+        self._reader_thread.start()
+        _log(self.name, self.color, f"已启动 (pid={self.proc.pid})")
+
+    def _stream_output(self) -> None:
+        """实时转发子进程输出"""
+        if not self.proc or not self.proc.stdout:
+            return
         try:
-            proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            print(f"[DEV] Force-killing {name} (pid={proc.pid})")
-            proc.kill()
+            for line in self.proc.stdout:
+                line = line.rstrip("\n")
+                if line:
+                    _log(self.name, self.color, line)
+        except (ValueError, OSError):
+            pass  # 进程已关闭
 
+    def stop(self) -> None:
+        if self.proc and self.proc.poll() is None:
+            _log(self.name, self.color, f"正在停止 (pid={self.proc.pid})...")
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=SHUTDOWN_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                _log(self.name, self.color, "强制终止")
+                self.proc.kill()
+                self.proc.wait(timeout=3)
+        self.proc = None
+
+    @property
+    def alive(self) -> bool:
+        return self.proc is not None and self.proc.poll() is None
+
+
+class DevManager:
+    """管理所有开发服务"""
+
+    def __init__(self, run_backend: bool = True, run_frontend: bool = True):
+        self.services: list[ServiceProcess] = []
+        self._shutdown = False
+
+        if run_backend:
+            self.services.append(ServiceProcess(
+                name="Backend",
+                cmd=[_find_venv_python(), "api_server.py"],
+                cwd=ROOT_DIR,
+                port=BACKEND_PORT,
+                color=C.CYAN,
+            ))
+
+        if run_frontend:
+            self.services.append(ServiceProcess(
+                name="Frontend",
+                cmd=["npm", "run", "dev"],
+                cwd=FRONTEND_DIR,
+                port=FRONTEND_PORT,
+                color=C.BLUE,
+            ))
+
+    def start_all(self) -> None:
+        self._shutdown = False
+        for svc in self.services:
+            svc.start()
+
+    def stop_all(self) -> None:
+        self._shutdown = True
+        for svc in reversed(self.services):
+            svc.stop()
+
+    def restart_all(self) -> None:
+        log_sys("正在重启所有服务...")
+        self.stop_all()
+        time.sleep(1)
+        self.start_all()
+        log_ok("重启完成")
+
+    def check_health(self) -> bool:
+        """检查是否有服务意外退出"""
+        if self._shutdown:
+            return True
+        for svc in self.services:
+            if svc.proc and not svc.alive:
+                ret = svc.proc.returncode
+                log_err(f"{svc.name} 意外退出 (code={ret})")
+                return False
+        return True
+
+
+# ── 交互式命令监听 ────────────────────────────────────────
+
+def _input_listener(manager: DevManager) -> None:
+    """监听用户键盘输入，支持交互式命令"""
+    while True:
+        try:
+            cmd = input().strip().lower()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if cmd in ("r", "restart"):
+            manager.restart_all()
+        elif cmd in ("q", "quit", "exit"):
+            log_sys("用户请求退出")
+            manager.stop_all()
+            os._exit(0)
+        elif cmd in ("s", "status"):
+            for svc in manager.services:
+                status = f"{C.GREEN}运行中{C.RESET}" if svc.alive else f"{C.RED}已停止{C.RESET}"
+                _log(svc.name, svc.color, f"状态: {status}")
+        elif cmd in ("h", "help"):
+            print(f"""
+{C.BOLD}可用命令：{C.RESET}
+  {C.GREEN}r{C.RESET} / restart  — 重启所有服务
+  {C.GREEN}s{C.RESET} / status   — 查看服务状态
+  {C.GREEN}q{C.RESET} / quit     — 退出
+  {C.GREEN}h{C.RESET} / help     — 显示帮助
+""")
+
+
+# ── 主入口 ────────────────────────────────────────────────
 
 def main() -> None:
-    """Entry point: start Backend and Frontend, monitor until exit.
-    入口：启动 Backend 和 Frontend，监控直到退出。
-    """
-    procs: List[Tuple[str, subprocess.Popen]] = []
+    parser = argparse.ArgumentParser(description="Lumina Studio 开发启动器")
+    parser.add_argument("--backend", action="store_true", help="仅启动后端")
+    parser.add_argument("--frontend", action="store_true", help="仅启动前端")
+    args = parser.parse_args()
 
-    # --- Banner ---
-    print("=" * 44)
-    print("  Lumina Studio 2.0 — Cross-Platform Launcher")
-    print("=" * 44)
-    print()
+    # 如果都没指定，则全部启动
+    run_backend = args.backend or (not args.backend and not args.frontend)
+    run_frontend = args.frontend or (not args.backend and not args.frontend)
 
-    # 1. Start Backend first (先启动 Backend)
-    print("[DEV] Starting Backend (python api_server.py) ...")
-    backend = subprocess.Popen(
-        _build_backend_cmd(),
-        cwd=ROOT_DIR,
-    )
-    procs.append(("Backend", backend))
-    print(f"[DEV] Backend started (pid={backend.pid}, port=8000)")
+    print(f"""
+{C.BOLD}{C.CYAN}╔══════════════════════════════════════════╗
+║     Lumina Studio 2.0 — Dev Launcher     ║
+╚══════════════════════════════════════════╝{C.RESET}
+""")
 
-    # 2. Start Frontend (再启动 Frontend)
-    print("[DEV] Starting Frontend (npm run dev) ...")
-    frontend = subprocess.Popen(
-        _build_frontend_cmd(),
-        cwd=FRONTEND_DIR,
-        # On Windows, npm is a .cmd script and requires shell=True
-        # Windows 上 npm 是 .cmd 脚本，需要 shell=True
-        shell=(os.name == "nt"),
-    )
-    procs.append(("Frontend", frontend))
-    print(f"[DEV] Frontend started (pid={frontend.pid}, port=5173)")
-    print()
-    print("[DEV] Both services running. Press Ctrl+C to stop.")
-    print()
+    venv_py = _find_venv_python()
+    log_sys(f"Python: {venv_py}")
 
-    # --- Signal handler for graceful shutdown ---
-    # 信号处理器，用于优雅终止
-    def shutdown(sig: int | None, frame: object) -> None:
-        """Handle SIGINT / SIGTERM: terminate children and exit.
-        处理 SIGINT / SIGTERM：终止子进程并退出。
-        """
-        sig_name = signal.Signals(sig).name if sig else "NONE"
-        print(f"\n[DEV] Received {sig_name}, shutting down ...")
-        _terminate_all(procs)
+    manager = DevManager(run_backend=run_backend, run_frontend=run_frontend)
+
+    # 信号处理
+    def shutdown(sig: int, _: object) -> None:
+        sig_name = signal.Signals(sig).name
+        log_sys(f"收到 {sig_name}，正在退出...")
+        manager.stop_all()
         sys.exit(0)
 
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    # --- Monitor loop ---
-    # 监控循环：任一进程退出时终止另一个
+    # 启动服务
+    manager.start_all()
+
+    svc_names = " + ".join(svc.name for svc in manager.services)
+    log_ok(f"{svc_names} 已启动")
+    print(f"""
+{C.DIM}────────────────────────────────────────────{C.RESET}
+  Backend:  {C.CYAN}http://localhost:{BACKEND_PORT}{C.RESET}
+  Frontend: {C.BLUE}http://localhost:{FRONTEND_PORT}{C.RESET}
+{C.DIM}────────────────────────────────────────────{C.RESET}
+  {C.GREEN}r{C.RESET}=重启  {C.GREEN}s{C.RESET}=状态  {C.GREEN}q{C.RESET}=退出  {C.GREEN}h{C.RESET}=帮助
+{C.DIM}────────────────────────────────────────────{C.RESET}
+""")
+
+    # 启动输入监听线程
+    input_thread = threading.Thread(target=_input_listener, args=(manager,), daemon=True)
+    input_thread.start()
+
+    # 主循环：健康检查
+    restart_count = 0
     try:
         while True:
-            for name, proc in procs:
-                ret = proc.poll()
-                if ret is not None:
-                    print(f"[DEV] {name} exited with code {ret}")
-                    _terminate_all(procs)
-                    sys.exit(ret if ret != 0 else 1)
-            # Sleep to avoid busy-waiting (休眠避免忙等待)
+            if not manager.check_health():
+                restart_count += 1
+                if restart_count > MAX_AUTO_RESTART:
+                    log_err(f"已连续自动重启 {MAX_AUTO_RESTART} 次，停止重试。请检查服务日志。")
+                    log_sys("按 r 手动重启，或 q 退出")
+                else:
+                    log_sys(f"检测到服务异常退出，自动重启 ({restart_count}/{MAX_AUTO_RESTART})...")
+                    manager.restart_all()
+            else:
+                restart_count = 0  # 健康时重置计数
             time.sleep(POLL_INTERVAL)
-    except SystemExit:
-        raise
-    except Exception as exc:
-        print(f"[DEV] Unexpected error: {exc}")
-        _terminate_all(procs)
-        sys.exit(1)
+    except (KeyboardInterrupt, SystemExit):
+        log_sys("正在退出...")
+        manager.stop_all()
+        sys.exit(0)
 
 
 if __name__ == "__main__":
