@@ -366,7 +366,7 @@ export const translations: Record<string, Record<"zh" | "en", string>> = {
     en: "Enable Outline",
   },
   conv_outline_width: {
-    zh: "轮廓宽度(mm)",
+    zh: "外轮廓厚度(mm)",
     en: "Outline Width(mm)",
   },
   conv_cloisonne_section: {
@@ -1138,7 +1138,7 @@ export const translations: Record<string, Record<"zh" | "en", string>> = {
     en: "LUT Color Grid",
   },
   "widget.outlineSettings": {
-    zh: "轮廓设置",
+    zh: "外轮廓设置",
     en: "Outline Settings",
   },
   "widget.cloisonneSettings": {
@@ -1650,11 +1650,11 @@ export const translations: Record<string, Record<"zh" | "en", string>> = {
 
   // ==================== Outline Settings ====================
   outline_enable: {
-    zh: "启用描边",
+    zh: "启用外轮廓",
     en: "Enable Outline",
   },
   outline_width: {
-    zh: "描边宽度",
+    zh: "外轮廓厚度",
     en: "Outline Width",
   },
 
