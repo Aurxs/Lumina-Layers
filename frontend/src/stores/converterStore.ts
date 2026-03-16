@@ -232,6 +232,9 @@ export interface ConverterState {
 
   // 区域替换计数（current 模式不走 colorRemapMap，需要独立计数以启用清除按钮）
   regionReplacementCount: number;
+
+  // 当前图片是否已手动点击过预览按钮（自动预览的前置条件）
+  hasManualPreview: boolean;
 }
 
 // ========== Actions Interface ==========
@@ -461,6 +464,7 @@ const DEFAULT_STATE: ConverterState = {
   regionData: null,
   pendingReplacement: null,
   regionReplacementCount: 0,
+  hasManualPreview: false,
 };
 
 // ========== Preview AbortController ==========
@@ -501,6 +505,7 @@ export const useConverterStore = create<ConverterState & ConverterActions>(
         imageFile: file,
         imagePreviewUrl: previewUrl,
         cropModalOpen: shouldOpenCrop,
+        hasManualPreview: false,
       });
     },
 
@@ -1236,6 +1241,7 @@ export const useConverterStore = create<ConverterState & ConverterActions>(
           preview_spacer_thick: state.spacer_thick,
           previewPixelWidth: response.dimensions?.width ?? null,
           previewPixelHeight: response.dimensions?.height ?? null,
+          hasManualPreview: true,
         });
       } catch (err) {
         // Ignore aborted requests (user started a new preview)
