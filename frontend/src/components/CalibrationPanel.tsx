@@ -44,7 +44,7 @@ export default function CalibrationPanel() {
   return (
     <aside
       data-testid="calibration-panel"
-      className="w-full max-w-2xl mx-auto h-full overflow-y-auto bg-white dark:bg-gray-800 p-6 flex flex-col gap-4"
+      className="w-full max-w-2xl mx-auto h-full overflow-y-auto p-6 flex flex-col gap-4"
     >
       <Dropdown
         label={t("cal_color_mode_label")}

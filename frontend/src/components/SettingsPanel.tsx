@@ -1,6 +1,6 @@
 /**
- * SettingsPanel - System settings panel displayed in FullScreenModal.
- * 系统设置面板，以全屏弹窗形式展示，包含缓存清理功能。
+ * SettingsPanel - System settings page.
+ * 系统设置页面，包含缓存清理功能。
  */
 
 import { useState } from "react";
@@ -37,7 +37,7 @@ export default function SettingsPanel() {
   return (
     <aside
       data-testid="settings-panel"
-      className="w-full max-w-2xl mx-auto h-full overflow-y-auto bg-white dark:bg-gray-800 p-6 flex flex-col gap-6"
+      className="w-full max-w-2xl mx-auto h-full overflow-y-auto p-6 flex flex-col gap-6"
     >
       <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100">
         {t("settings.title")}

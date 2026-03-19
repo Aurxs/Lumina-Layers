@@ -61,7 +61,7 @@ export default function LutManagerPanel() {
   return (
     <aside
       data-testid="lut-manager-panel"
-      className="w-full max-w-2xl mx-auto h-full overflow-y-auto bg-white dark:bg-gray-800 p-6 flex flex-col gap-4"
+      className="w-full max-w-2xl mx-auto h-full overflow-y-auto p-6 flex flex-col gap-4"
     >
       <div>
         <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-100">{t("lut_manager_title")}</h2>

@@ -98,7 +98,7 @@ export default function ExtractorPanel() {
   return (
     <aside
       data-testid="extractor-panel"
-      className="w-[400px] shrink-0 h-full overflow-y-auto bg-white dark:bg-gray-800 p-4 flex flex-col gap-4"
+      className="w-[400px] shrink-0 h-full overflow-y-auto border-r border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 p-4 flex flex-col gap-4"
     >
       {/* 颜色模式 */}
       <div data-testid="color-mode-select">
