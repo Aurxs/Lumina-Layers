@@ -606,7 +606,7 @@ function InteractiveModelViewer({
       <OutlineFrame3D
         enabled={enableOutline}
         outlineWidth={outlineWidth}
-        backingPlateMesh={backingPlateMesh}
+        backingPlateMesh={backingMesh}
         modelMaxZ={modelBounds?.maxZ ?? 0}
       />
       {/* 景泰蓝金色线条预览 */}
@@ -615,7 +615,7 @@ function InteractiveModelViewer({
         wireWidthMm={wireWidthMm}
         wireHeightMm={wireHeightMm}
         colorMeshes={colorMeshes}
-        backingPlateMesh={backingPlateMesh}
+        backingPlateMesh={backingMesh}
         spacerThick={spacerThick}
       />
     </group>

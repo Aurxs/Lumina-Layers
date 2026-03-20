@@ -70,6 +70,8 @@ export interface ConvertGenerateRequest extends ConvertPreviewRequest {
   coating_height_mm: number;
   replacement_regions?: ColorReplacementItem[];
   free_color_set?: string[];
+  printer_id?: string;
+  slicer?: string;
   use_cached_matched_rgb?: boolean;
 }
 
