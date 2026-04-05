@@ -41,12 +41,23 @@ jobs:
           echo "BASE_NAME=$BASE_NAME" >> "$GITHUB_ENV"
           echo "ARTIFACT_NAME=$ARTIFACT_NAME" >> "$GITHUB_ENV"
 
-      - name: Install dependencies
+      - name: Create virtual environment (Windows)
+        if: matrix.platform_suffix == 'win'
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install --upgrade pip
+          .\.venv\Scripts\python.exe -m pip install pyinstaller
+          .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+
+      - name: Create virtual environment (macOS)
+        if: matrix.platform_suffix == 'mac'
         shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install pyinstaller
-          pip install -r requirements.txt
+          python -m venv .venv
+          ./.venv/bin/python -m pip install --upgrade pip
+          ./.venv/bin/python -m pip install pyinstaller
+          ./.venv/bin/python -m pip install -r requirements.txt
 
       - name: Validate macOS icon asset
         if: matrix.platform_suffix == 'mac'
@@ -58,7 +69,7 @@ jobs:
         if: matrix.platform_suffix == 'win'
         shell: pwsh
         run: |
-          pyinstaller --noconfirm --onefile `
+          .\.venv\Scripts\python.exe -m PyInstaller --noconfirm --onefile `
             --icon="icon.ico" `
             --add-data "icon.ico;." `
             --add-data "bambu_config_template.json;." `
@@ -75,7 +86,7 @@ jobs:
         if: matrix.platform_suffix == 'mac'
         shell: bash
         run: |
-          pyinstaller --noconfirm --windowed \
+          ./.venv/bin/python -m PyInstaller --noconfirm --windowed \
             --icon "icon.icns" \
             --add-data "icon.ico:." \
             --add-data "bambu_config_template.json:." \
